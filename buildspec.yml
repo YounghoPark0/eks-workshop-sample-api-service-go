@@ -1,3 +1,4 @@
+---
 version: 0.2
 phases:
   install:
@@ -15,3 +16,36 @@ phases:
         - $(aws ecr get-login --no-include-email)
   build:
     commands:
+      - docker build --tag $REPOSITORY_URI:$TAG .
+      - docker push $REPOSITORY_URI:$TAG
+      # Creating k3d cluster
+      - k3d create
+      # Waiting for cluster creation for 20 seconds
+      - sleep 20
+      # Configuring kubectl for k3d cluster
+      - export KUBECONFIG="$(k3d get-kubeconfig --name='k3s-default')"
+      # Creating secret as per https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/#add-image-pull-secret-to-service-account
+      # to enable k3d cluster pull images from ECR
+      - ./create_secret.sh
+      # Applying our service and deployment manifest
+      - kubectl apply -f hello-k8s.yml
+      # Waiting for pods and service to come up
+      - sleep 20
+      # Running unit test
+      - ./unit_test.sh
+  post_build:
+    commands:
+      # Checking if build phase including unit test completed successfully, if not we don't proceed with deployment
+      - bash -c "if [ /"$CODEBUILD_BUILD_SUCCEEDING/" == /"0/" ]; then exit 1; fi"
+      - echo Build stage successfully completed on `date`
+      - CREDENTIALS=$(aws sts assume-role --role-arn $EKS_KUBECTL_ROLE_ARN --role-session-name codebuild-kubectl --duration-seconds 900)
+      - export KUBECONFIG=$HOME/.kube/config
+      - export AWS_ACCESS_KEY_ID="$(echo ${CREDENTIALS} | jq -r '.Credentials.AccessKeyId')"
+      - export AWS_SECRET_ACCESS_KEY="$(echo ${CREDENTIALS} | jq -r '.Credentials.SecretAccessKey')"
+      - export AWS_SESSION_TOKEN="$(echo ${CREDENTIALS} | jq -r '.Credentials.SessionToken')"
+      - export AWS_EXPIRATION=$(echo ${CREDENTIALS} | jq -r '.Credentials.Expiration')
+      - aws eks update-kubeconfig --name $EKS_CLUSTER_NAME
+      - kubectl apply -f hello-k8s.yml
+      - printf '[{"name":"hello-k8s","imageUri":"%s"}]' $REPOSITORY_URI:$TAG > build.json
+artifacts:
+  files: build.json
