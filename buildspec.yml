@@ -1,26 +1,16 @@
 version: 0.2
-
 phases:
-  install:
-    runtime-versions:
-      python: 3.7
+  pre_build:
+    commands:
+      - $(aws ecr get-login --no-include-email --region $AWS_DEFAULT_REGION)
+      - TAG="$(date +%s)"
+      - REPOSITORY_URI="$ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME"
   build:
     commands:
-      - "echo '{ \"was\": \"http://192.168.68.112:5000/\"}' > config.json"
-      - sed -i 's@CONTAINER_IMAGE@'"$REPOSITORY_URI:$TAG"'@' hello-k8s.yml
-      
-      
+      - echo Build started on `date`
+      - echo Building the Docker image...
+      - docker build -t "${REPOSITORY_URI}:${TAG}" .
   post_build:
     commands:
-      - docker push $REPOSITORY_URI:$TAG
-      - CREDENTIALS=$(aws sts assume-role --role-arn $EKS_KUBECTL_ROLE_ARN --role-session-name codebuild-kubectl --duration-seconds 900)
-      - export AWS_ACCESS_KEY_ID="$(echo ${CREDENTIALS} | jq -r '.Credentials.AccessKeyId')"
-      - export AWS_SECRET_ACCESS_KEY="$(echo ${CREDENTIALS} | jq -r '.Credentials.SecretAccessKey')"
-      - export AWS_SESSION_TOKEN="$(echo ${CREDENTIALS} | jq -r '.Credentials.SessionToken')"
-      - export AWS_EXPIRATION=$(echo ${CREDENTIALS} | jq -r '.Credentials.Expiration')
-      - aws eks update-kubeconfig --name $EKS_CLUSTER_NAME
-      - kubectl apply -f hello-k8s.yml
-artifacts:
-  files:
-    - '**/*'
-  name: flask-web-$(date +%Y-%m-%d)
+      - echo Uploading the Docker image...
+      - docker push "${REPOSITORY_URI}:${TAG}"
