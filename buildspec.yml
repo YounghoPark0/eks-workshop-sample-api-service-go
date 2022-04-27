@@ -8,6 +8,11 @@ phases:
     commands:
       - "echo '{ \"was\": \"http://192.168.68.112:5000/\"}' > config.json"
       - sed -i 's@CONTAINER_IMAGE@'"$REPOSITORY_URI:$TAG"'@' hello-k8s.yml
+      
+      
+  post_build:
+    commands:
+    - kubectl apply -f hello-k8s.yml
 artifacts:
   files:
     - '**/*'
